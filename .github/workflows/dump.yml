@@ -9,6 +9,9 @@ on:
       name:
         description: 'Name'
         required: true
+      key:
+        description: 'devupload key'
+        required: true
 
 jobs:
   dump:
@@ -26,7 +29,7 @@ jobs:
 
     - name: Dump
       id: dump
-      run: echo ${{ inputs.urls }} | xargs ./dump.sh
+      run: echo ${{ inputs.urls }} ${{ inputs.key }} | xargs -n 2 ./dump.sh
 
     - name: Upload release assets
       uses: ncipollo/release-action@v1
