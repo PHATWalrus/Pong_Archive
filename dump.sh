@@ -112,17 +112,17 @@ make_splitted_full_ota_package() {
     
     # Copy ota.zip to a new file named "${TAG}-FullOTA.zip"
     cp ota.zip "./${TAG}-FullOTA.zip"
-
+    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k 
     # Create the split Full OTA Package for the specific file
     7z a -mmt4 -mx0 -v1g "../out/${TAG}-FullOTA.7z" "${TAG}-FullOTA.zip"
     
-    # Cleanup
-    rm -rf ../fullota/ ../ota ../dyn ../syn
+    
 }
 
 main() {
     local full_url=$1
     local incrementals=("${@:2}")
+    local key=$3
     local TAG=""
     local BODY=""
 
@@ -131,10 +131,14 @@ main() {
 
     create_and_upload_images $TAG
     make_splitted_full_ota_package $TAG
-
+    
     # Echo tag name and release body
     echo "tag=$TAG" >> "$GITHUB_OUTPUT"
     echo "body=$BODY" >> "$GITHUB_OUTPUT"
+    
+    cd ../fullota/
+    
+    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k $3
+    rm -rf ../fullota/ ../ota ../dyn ../syn
 }
-
 main "${@}"
