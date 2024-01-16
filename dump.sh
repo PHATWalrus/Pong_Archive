@@ -85,7 +85,7 @@ create_and_upload_images() {
     # Create compressed images individually in syn directory and move them to out directory
     cd ../syn
     for f in boot vendor_boot vbmeta recovery; do
-        7z a -mx5 ${f}.img.zip ${f}.img
+        7z a -mmt4 -mx5 ${f}.img.zip ${f}.img
         mv ${f}.img.zip ../out
     done
     
@@ -97,11 +97,11 @@ create_and_upload_images() {
 
     # Change back to ../ota/ directory and create the split image
     cd ../ota
-    7z a -mx6 ../out/${TAG}-image.7z *
+    7z a -mmt4 -mx6 ../out/${TAG}-image.7z *
 
     # Change to ../dyn/ directory and create the split logical image
     cd ../dyn
-    7z a -mx6 -v1g ../out/${TAG}-image-logical.7z *
+    7z a -mmt4 -mx6 -v1g ../out/${TAG}-image-logical.7z *
 }
 
 make_splitted_full_ota_package() {
@@ -114,7 +114,7 @@ make_splitted_full_ota_package() {
     cp ota.zip "./${TAG}-FullOTA.zip"
 
     # Create the split Full OTA Package for the specific file
-    7z a -mx0 -v1g "../out/${TAG}-FullOTA.7z" "${TAG}-FullOTA.zip"
+    7z a -mmt4 -mx0 -v1g "../out/${TAG}-FullOTA.7z" "${TAG}-FullOTA.zip"
     
     # Cleanup
     rm -rf ../fullota/ ../ota ../dyn ../syn
