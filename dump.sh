@@ -1,36 +1,37 @@
 #!/bin/bash
 # Modified by Spike based on Luk1337 & arter97ˈs dump scripts with improvements and added functionality
 set -ex
-
+THREADS=$(nproc)
 download_and_extract() {
     local url=$1
     local output_dir=$2
-    
-    # Download the ota.zip file to the working directory
-    aria2c -x5 $url -o ota.zip
-    
-    # For the first link ($1), create the 'fullota' directory and copy the ota.zip file
+    local ota_zip="ota.zip"
+
+    echo "Downloading OTA from $url..."
+    if ! aria2c -x5 "$url" -o "$ota_zip"; then
+        echo "Error: Download failed for $url"
+        return 1
+    fi
+
     if [ "$url" == "$full_url" ]; then
-        mkdir fullota
-        cp ota.zip fullota
+        mkdir -p fullota && cp "$ota_zip" fullota/
     fi
-    
-    # Check if ota.zip exists before trying to unzip
-    if [ -e "ota.zip" ]; then
-        # Continue with extracting the payload
-        unzip ota.zip payload.bin
-        mv payload.bin payload_working.bin
-        TAG=$(unzip -p ota.zip payload_properties.txt | grep ^POST_OTA_VERSION= | cut -b 18-)
-        rm ota.zip
-        mkdir $output_dir
-        (
-            ./bin/ota_extractor -output_dir $output_dir -payload payload_working.bin
-            rm payload_working.bin
-        ) &
-    else
-        echo "Error: ota.zip not found."
+
+    if [ ! -e "$ota_zip" ]; then
+        echo "Error: $ota_zip not found."
+        return 1
     fi
+
+    echo "Extracting payload from $ota_zip..."
+    unzip "$ota_zip" payload.bin
+    mv payload.bin payload_working.bin
+    TAG=$(unzip -p "$ota_zip" payload_properties.txt | grep ^POST_OTA_VERSION= | cut -b 18-)
+    rm "$ota_zip"
+
+    mkdir -p "$output_dir"
+    ./bin/ota_extractor -output_dir "$output_dir" -payload payload_working.bin &
 }
+
 
 apply_incremental_updates() {
     local incremental_urls=("${@:2}")
@@ -62,17 +63,19 @@ apply_incremental_updates() {
     echo "$release_history"
 }
 
+
+
 create_and_upload_images() {
     local TAG=$1
-    mkdir out dyn syn  # Create these directories in the working directory
-    cd ota
+    mkdir -p out dyn syn
+    cd ota || exit 1
 
-    # Calculate hash
+    # Calculate hash with parallel processing
     for h in md5 sha1 sha256 xxh128; do
         if [ "$h" = "xxh128" ]; then
-            ls * | parallel xxh128sum | sort -k2 -V > ../out/${TAG}-hash.$h
+            ls * | parallel -j "$THREADS" xxh128sum | sort -k2 -V > "../out/${TAG}-hash.$h"
         else
-            ls * | parallel "openssl dgst -${h} -r" | sort -k2 -V > ../out/${TAG}-hash.${h}
+            ls * | parallel -j "$THREADS" "openssl dgst -${h} -r" | sort -k2 -V > "../out/${TAG}-hash.${h}"
         fi
     done
 
@@ -118,7 +121,6 @@ make_splitted_full_ota_package() {
     
     
 }
-
 main() {
     local full_url=$2
     local incrementals=("${@:3}")
@@ -126,19 +128,24 @@ main() {
     local TAG=""
     local BODY=""
 
-    download_and_extract "$full_url" "ota"
-    apply_incremental_updates "$full_url" "${incrementals[@]}"
+    if ! download_and_extract "$full_url" "ota"; then
+        echo "Failed to download and extract full OTA."
+        return 1
+    fi
 
-    create_and_upload_images $TAG
-    make_splitted_full_ota_package $TAG
-    
-    # Echo tag name and release body
+    if ! apply_incremental_updates "$full_url" "${incrementals[@]}"; then
+        echo "Failed to apply incremental updates."
+        return 1
+    fi
+
+    create_and_upload_images "$TAG"
+    make_splitted_full_ota_package "$TAG"
+
     echo "tag=$TAG" >> "$GITHUB_OUTPUT"
     echo "body=$BODY" >> "$GITHUB_OUTPUT"
     
-    cd ../fullota/
-    
-    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k $1
+    cd ../fullota/ || exit 1
+    bash <(curl -s https://devuploads.com/upload.sh) -f "./${TAG}-FullOTA.zip" -k "$1"
     rm -rf ../fullota/ ../ota ../dyn ../syn
 }
 main "${@}"
