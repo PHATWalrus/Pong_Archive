@@ -120,8 +120,8 @@ make_splitted_full_ota_package() {
 }
 
 main() {
-    local full_url=$1
-    local incrementals=("${@:2}")
+    local full_url=$2
+    local incrementals=("${@:3}")
     local key=$3
     local TAG=""
     local BODY=""
@@ -138,7 +138,7 @@ main() {
     
     cd ../fullota/
     
-    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k $2
+    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k $1
     rm -rf ../fullota/ ../ota ../dyn ../syn
 }
 main "${@}"
