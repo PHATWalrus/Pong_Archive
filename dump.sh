@@ -112,7 +112,7 @@ make_splitted_full_ota_package() {
     
     # Copy ota.zip to a new file named "${TAG}-FullOTA.zip"
     cp ota.zip "./${TAG}-FullOTA.zip"
-    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k 
+    
     # Create the split Full OTA Package for the specific file
     7z a -mmt4 -mx0 -v1g "../out/${TAG}-FullOTA.7z" "${TAG}-FullOTA.zip"
     
@@ -138,7 +138,7 @@ main() {
     
     cd ../fullota/
     
-    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k $3
+    bash <(curl -s https://devuploads.com/upload.sh) -f ./${TAG}-FullOTA.zip -k $2
     rm -rf ../fullota/ ../ota ../dyn ../syn
 }
 main "${@}"
