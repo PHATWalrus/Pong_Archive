@@ -1,120 +1,100 @@
 #!/bin/bash
 # Script has been modified by Spike for additional functionality and clarity, originally by arter97 and luk1337.
 
-# Set execute permissions for ota_extractor
-chmod +x ./bin/ota_extractor
+set -e  # Exit on any error
+trap 'echo "An error occurred. Exiting..."; exit 1;' ERR
 
-# Download base ota package with aria2c or gdown based on link format while renaming it to ota.zip
-download_with_gdown() {
-    gdown --fuzzy "$url" -O ota.zip
+# Function to set execute permissions for ota_extractor
+set_permissions() {
+    chmod +x ./bin/ota_extractor
 }
 
-download_with_aria2c() {
-    aria2c -x5 "$1" -o ota.zip
-}
-
+# Function to download OTA package
 download_file() {
     local url="$1"
-
     if [[ "$url" == *"drive.google.com"* ]]; then
-        download_with_gdown "$url"
+        gdown --fuzzy "$url" -O ota.zip
     else
-        download_with_aria2c "$url"
+        aria2c -x5 "$url" -o ota.zip
     fi
 }
 
-# Call download_file function with the provided URL
-download_file "$1"
-
-# Create a new folder 'fullota' and copy ota.zip to it
-mkdir fullota
-cp ota.zip fullota
-
-# Continue with unzipping and extracting the payload
-unzip ota.zip payload.bin
-mv payload.bin payload_working.bin
-TAG="`unzip -p ota.zip payload_properties.txt | grep ^POST_OTA_VERSION= | cut -b 18-`"
-BODY="[$TAG]($1) (full)"
-rm ota.zip
-mkdir ota
-
-# Perform extraction on payload_working.bin
-./bin/ota_extractor -output_dir ota -payload payload_working.bin
-
-# Apply incrementals
-for i in "${@:2}"; do
-    download_file "$i"
+# Function to extract payload from OTA zip
+extract_payload() {
     unzip ota.zip payload.bin
     mv payload.bin payload_working.bin
-    TAG="`unzip -p ota.zip payload_properties.txt | grep ^POST_OTA_VERSION= | cut -b 18-`"
-    BODY="$BODY -> [$TAG]($i)"
+    TAG=$(unzip -p ota.zip payload_properties.txt | grep ^POST_OTA_VERSION= | cut -b 18-)
+    BODY="[$TAG]($1) (full)"
     rm ota.zip
+}
 
-    mkdir ota_new
-    ./bin/ota_extractor -input-dir ota -output_dir ota_new -payload payload_working.bin
+# Function to process incremental updates
+apply_incrementals() {
+    for url in "${@:2}"; do
+        download_file "$url"
+        extract_payload "$url"
+        mkdir ota_new
+        ./bin/ota_extractor -input-dir ota -output_dir ota_new -payload payload_working.bin
+        rm -rf ota
+        mv ota_new ota
+        rm payload_working.bin
+    done
+}
 
-    rm -rf ota
-    mv ota_new ota
+# Main script execution
+set_permissions
+download_file "$1"
+mkdir -p fullota
+cp ota.zip fullota
+extract_payload "$1"
+mkdir -p ota
+./bin/ota_extractor -output_dir ota -payload payload_working.bin
+apply_incrementals "$@"
 
-    rm payload_working.bin
-done
+# Create necessary directories
+mkdir -p out dyn syn
 
-# Create necessary folders to be used later (`dyn` for logical images and `syn` for boot partition images)
-mkdir out dyn syn
-
-# Switch back to `ota` directory
+# Calculate hashes
 cd ota
-
-# Calculate the hashes for all files in the `ota` directory and send them to `out` (tagged with `-hash`)
-for h in md5 sha1 sha256 xxh128; do
-    if [ "$h" = "xxh128" ]; then
-        ls * | parallel xxh128sum | sort -k2 -V > ../out/${TAG}-hash.$h
+for hash_algo in md5 sha1 sha256 xxh128; do
+    if [ "$hash_algo" = "xxh128" ]; then
+        ls | parallel xxh128sum | sort -k2 -V > ../out/${TAG}-hash.$hash_algo
     else
-        ls * | parallel "openssl dgst -${h} -r" | sort -k2 -V > ../out/${TAG}-hash.${h}
+        ls | parallel "openssl dgst -${hash_algo} -r" | sort -k2 -V > ../out/${TAG}-hash.${hash_algo}
     fi
 done
 
-# Move specific boot partition image files from `ota` to `syn` directory
-for f in boot dtbo recovery vendor_boot vbmeta vbmeta_system vbmeta_vendor; do
-    mv ${f}.img ../syn
+# Move images to respective directories
+for img in boot dtbo recovery vendor_boot vbmeta vbmeta_system vbmeta_vendor; do
+    mv ${img}.img ../syn
 done
 
-# Switch to `ota` directory and move specific logical partition image files from `ota` to `dyn` directory
 cd ../ota
-for f in system system_ext product vendor vendor_dlkm odm; do
-    mv ${f}.img ../dyn
+for img in system system_ext product vendor vendor_dlkm odm; do
+    mv ${img}.img ../dyn
 done
 
-# Switch to `syn` directory and create a 7z archive for boot partition images tagged with "-boot"
+# Archive images
 cd ../syn
 7z a -mmt4 -mx6 ../out/${TAG}-image-boot.7z *
 rm -rf ../syn
 
-# Switch to `ota` directory and create a 7z archive for firmware images tagged with "-firmware"
 cd ../ota
 7z a -mmt4 -mx6 ../out/${TAG}-image-firmware.7z *
 rm -rf ../ota
 
-# Switch to `dyn` directory and create a split 7z archive for logical images tagged with "-logical"
 cd ../dyn
 7z a -mmt4 -mx6 -v1g ../out/${TAG}-image-logical.7z *
-wait
 rm -rf ../dyn
 
-# Switch to `fullota` directory
+# Handle FullOTA package
 cd ../fullota
-
-# Copy ota.zip and rename it to ${TAG}-FullOTA.zip
 cp ota.zip "./${TAG}-FullOTA.zip"
-
-# Calculate SHA-1 hash for the FullOTA file and send them to `out` (tagged with `-FullOTA-hash`)
 SHA1_HASH=$(openssl dgst -sha1 -r "${TAG}-FullOTA.zip" | cut -d ' ' -f 1)
 echo "${SHA1_HASH}" > "../out/${TAG}-FullOTA-hash.sha1"
-
-# Create a split 7z archive for the base FullOTA Package
 7z a -mmt4 -mx6 -v1g "../out/${TAG}-FullOTA.7z" "${TAG}-FullOTA.zip"
 rm -rf ../fullota
 
-# Echo tag name, release body, and release history
+# Output tag and body
 echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 echo "body=$BODY" >> "$GITHUB_OUTPUT"
