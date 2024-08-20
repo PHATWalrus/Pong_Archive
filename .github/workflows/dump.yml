@@ -11,22 +11,46 @@ on:
         required: true
 
 jobs:
-  dump:
-    permissions: write-all
+  setup:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
-    - name: Setup
+    - name: Cache apt packages
+      uses: actions/cache@v3
+      with:
+        path: /var/cache/apt
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/setup.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-apt-
+
+    - name: Setup system dependencies
       run: |
         sudo apt update
         sudo apt -y install aria2 zstd p7zip-full parallel openssl xxhash
 
+    - name: Cache Python packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
     - name: Install gdown
       run: |
         python3 -m pip install gdown
+
+  dump:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{ fromJson(inputs.urls) }}
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
     - name: Set script permissions
       run: |
@@ -34,7 +58,7 @@ jobs:
 
     - name: Dump
       id: dump
-      run: echo ${{ inputs.urls }} | xargs ./dump.sh
+      run: ./dump.sh ${{ matrix.url }}
 
     - name: Upload release assets
       uses: ncipollo/release-action@v1
